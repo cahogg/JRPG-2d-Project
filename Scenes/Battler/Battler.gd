@@ -77,3 +77,19 @@ func set_is_selectable(value) -> void:
 # Returns `true` if the battler is controlled by the player.
 func is_player_controlled() -> bool:
 	return ai_scene == null
+
+# We connect to the stats' `health_depleted` signal to react to the health reaching `0`.
+func _ready() -> void:
+	assert(stats is BattlerStats)
+	stats = stats.duplicate()
+	stats.reinitialize()
+	stats.connect("health_depleted", self, "_on_BattlerStats_health_depleted")
+
+
+func _on_BattlerStats_health_depleted() -> void:
+	# When the health depletes, we turn off processing for this battler.
+	set_is_active(false)
+	# Then, if it's an opponent, we mark it as unselectable. For party members,
+	# you still want to be able to select them to revive them.
+	if not is_party_member:
+		set_is_selectable(false)
