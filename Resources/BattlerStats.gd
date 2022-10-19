@@ -11,6 +11,10 @@ signal health_changed(old_value, new_value)
 # Same as above, but for the `energy`.
 signal energy_changed(old_value, new_value)
 
+# A list of all properties that can receive bonuses.
+const UPGRADABLE_STATS = [
+	"max_health", "max_energy", "attack", "defense", "speed", "hit_chance", "evasion"
+]
 
 # The battler's maximum health.
 export var max_health := 100.0
@@ -39,7 +43,11 @@ var health := max_health setget set_health
 var energy := 0 setget set_energy
 
 var _attack := base_attack setget , get_attack
-# ...
+
+# The property below stores a list of modifiers for each property listed in
+# `UPGRADABLE_STATS`.
+# The value of a modifier can be any floating-point value, positive or negative.
+var _modifiers := {}
 
 func get_attack() -> float:
 	return attack
@@ -92,3 +100,70 @@ func set_base_hit_chance(value: float) -> void:
 func set_base_evasion(value: float) -> void:
 	base_evasion = value
 	_recalculate_and_update("evasion")
+
+# Initializes keys in the modifiers dict, ensuring they all exist.
+func _init() -> void:
+	for stat in UPGRADABLE_STATS:
+		# For each stat, we create an empty dictionary.
+		# Each upgrade will be a unique key-value pair.
+		_modifiers[stat] = {}
+
+# Calculates the final value of a single stat. That is, its based value
+# with all modifiers applied.
+# We reference a stat property name using a string here and update
+# it with the `set()` method.
+func _recalculate_and_update(stat: String) -> void:
+	# All our property names follow a pattern: the base stat has the
+	# same identifier as the final stat with the "base_" prefix.
+	var value: float = get("base_" + stat)
+	# We get the array of modifiers corresponding to a stat.
+	var modifiers: Array = _modifiers[stat].values()
+	for modifier in modifiers:
+		value += modifier
+	# This line ensures the final stat cannot be negative.
+	value = max(value, 0.0)
+	# Here's where we assign the value to the stat. For instance,
+	# if the `stat` argument is "attack", this is like writing
+	# attack = value
+	set(stat, value)
+
+# Adds a modifier that affects the stat with the given `stat_name` and returns
+# its unique key.
+func add_modifier(stat_name: String, value: float) -> int:
+	assert(stat_name in UPGRADABLE_STATS, "Trying to add a modifier to a nonexistent stat.")
+	# We use a function to ensure we generate a unique ID for every stat
+	# modifier. You can find it below.
+	var id := _generate_unique_id(stat_name)
+	# Using the unique ID, we save the modifier's value.
+	_modifiers[stat_name][id] = value
+	# Every time we add or remove a stat modifier, we need to recalculate its
+	# final value.
+	_recalculate_and_update(stat_name)
+	# Returning the id allows the caller to bind it to a signal. For instance
+	# with equpment, to call `remove_modifier()` upon removing the equipment.
+	return id
+
+
+# Removes a modifier associated with the given `stat_name`.
+func remove_modifier(stat_name: String, id: int) -> void:
+	# As above, during development, we want to know if we try to remove a
+	# modifier that doesn't exist.
+	assert(id in _modifiers[stat_name], "Id %s not found in %s" % [id, _modifiers[stat_name]])
+	# Here's why we use dictionaries in `_modifiers`: we can arbitrarily erase
+	# keys without affecting others, ensuring our unique IDs always work.
+	_modifiers[stat_name].erase(id)
+	_recalculate_and_update(stat_name)
+
+
+# Find the first unused integer in a stat's modifiers keys.
+func _generate_unique_id(stat_name: String) -> int:
+	var keys: Array = _modifiers[stat_name].keys()
+	# If there are no keys, we return `0`, which is our first valid unique id.
+	# Without existing keys, calling methods like `Array.back()` will trigger an
+	# error.
+	if keys.empty():
+		return 0
+	else:
+		# We always start from the last key, which will always be the highest
+		# number, even if we remove modifiers.
+		return keys.back() + 1

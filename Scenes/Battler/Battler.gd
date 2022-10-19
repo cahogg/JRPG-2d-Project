@@ -1,6 +1,7 @@
 extends Node2D
 class_name Battler
 
+
 # Resource that manages both the base and final stats for this battler.
 export var stats: Resource
 # If the battler has an `ai_scene`, we will instantiate it and let the AI make decisions.
@@ -93,3 +94,4 @@ func _on_BattlerStats_health_depleted() -> void:
 	# you still want to be able to select them to revive them.
 	if not is_party_member:
 		set_is_selectable(false)
+
