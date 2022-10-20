@@ -104,66 +104,73 @@ func set_base_evasion(value: float) -> void:
 # Initializes keys in the modifiers dict, ensuring they all exist.
 func _init() -> void:
 	for stat in UPGRADABLE_STATS:
-		# For each stat, we create an empty dictionary.
-		# Each upgrade will be a unique key-value pair.
-		_modifiers[stat] = {}
+		_modifiers[stat] = {
+			# Each stat now have two dictionaries, `value` and `rate`, to later make it easy 
+			# to calculate final stats.
+			value = {},
+			rate = {}
+		}
 
-# Calculates the final value of a single stat. That is, its based value
-# with all modifiers applied.
-# We reference a stat property name using a string here and update
-# it with the `set()` method.
-func _recalculate_and_update(stat: String) -> void:
-	# All our property names follow a pattern: the base stat has the
-	# same identifier as the final stat with the "base_" prefix.
-	var value: float = get("base_" + stat)
-	# We get the array of modifiers corresponding to a stat.
-	var modifiers: Array = _modifiers[stat].values()
-	for modifier in modifiers:
-		value += modifier
-	# This line ensures the final stat cannot be negative.
-	value = max(value, 0.0)
-	# Here's where we assign the value to the stat. For instance,
-	# if the `stat` argument is "attack", this is like writing
-	# attack = value
-	set(stat, value)
+# Adds a value-based modifier. The value gets added to the stat `stat_name` after applying
+# rate-based modifiers.
+func add_value_modifier(stat_name: String, value: float) -> void:
+	# I miss some features from languages like Python here, that would allow for a more explicit 
+	# syntax.
+	_add_modifier(stat_name, value, 0.0)
 
-# Adds a modifier that affects the stat with the given `stat_name` and returns
-# its unique key.
-func add_modifier(stat_name: String, value: float) -> int:
+
+# Adds a rate-based modifier. A value of `0.2` represents an increase in 20% of the stat `stat_name`.
+func add_rate_modifier(stat_name: String, rate: float) -> void:
+	_add_modifier(stat_name, 0.0, rate)
+
+
+# Adds either a value-based or a rate-based modifier. Notice I'm using a third argument with a 
+# default value of `0.0`.
+func _add_modifier(stat_name: String, value: float, rate := 0.0) -> int:
 	assert(stat_name in UPGRADABLE_STATS, "Trying to add a modifier to a nonexistent stat.")
-	# We use a function to ensure we generate a unique ID for every stat
-	# modifier. You can find it below.
-	var id := _generate_unique_id(stat_name)
-	# Using the unique ID, we save the modifier's value.
-	_modifiers[stat_name][id] = value
-	# Every time we add or remove a stat modifier, we need to recalculate its
-	# final value.
+	var id := -1
+
+	# If the argument `value` is not `0.0`, we register a value-based modifier.
+	if not is_equal_approx(value, 0.0):
+		# Generates a new unique id for the "value" key.
+		id = _generate_unique_id(stat_name, true)
+		_modifiers[stat_name]["value"][id] = value
+	# If the argument `value` is not `0.0`, we register a rate-based modifier.
+	if not is_equal_approx(rate, 0.0):
+		# Generates a new unique id for the "rate" key.
+		id = _generate_unique_id(stat_name, false)
+		_modifiers[stat_name]["rate"][id] = rate
+
 	_recalculate_and_update(stat_name)
-	# Returning the id allows the caller to bind it to a signal. For instance
-	# with equpment, to call `remove_modifier()` upon removing the equipment.
 	return id
 
 
-# Removes a modifier associated with the given `stat_name`.
-func remove_modifier(stat_name: String, id: int) -> void:
-	# As above, during development, we want to know if we try to remove a
-	# modifier that doesn't exist.
-	assert(id in _modifiers[stat_name], "Id %s not found in %s" % [id, _modifiers[stat_name]])
-	# Here's why we use dictionaries in `_modifiers`: we can arbitrarily erase
-	# keys without affecting others, ensuring our unique IDs always work.
-	_modifiers[stat_name].erase(id)
-	_recalculate_and_update(stat_name)
+func _recalculate_and_update(stat: String) -> void:
+	var value: float = get("base_" + stat)
+
+	# We first get and sum all rate-based multipliers.
+	var modifiers_multiplier: Array = _modifiers[stat]["rate"].values()
+	var multiplier := 1.0
+	for modifier in modifiers_multiplier:
+		multiplier += modifier
+	# Then, we multiply the base stat's value, if necessary.
+	if not is_equal_approx(multiplier, 1.0):
+		value *= multiplier
+
+	# And we add all value-based modifiers.
+	var modifiers_value: Array = _modifiers[stat]["value"].values()
+	for modifier in modifiers_value:
+		value += modifier
+
+	value = round(max(value, 0.0))
+	set(stat, value)
 
 
-# Find the first unused integer in a stat's modifiers keys.
-func _generate_unique_id(stat_name: String) -> int:
-	var keys: Array = _modifiers[stat_name].keys()
-	# If there are no keys, we return `0`, which is our first valid unique id.
-	# Without existing keys, calling methods like `Array.back()` will trigger an
-	# error.
+func _generate_unique_id(stat_name: String, is_value_modifier: bool) -> int:
+	# We now use a boolean to pick the right key and generate a corresponding id.
+	var type := "value" if is_value_modifier else "rate"
+	var keys: Array = _modifiers[stat_name][type].keys()
 	if keys.empty():
 		return 0
 	else:
-		# We always start from the last key, which will always be the highest
-		# number, even if we remove modifiers.
 		return keys.back() + 1
